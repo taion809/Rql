@@ -1,8 +1,15 @@
 <?php
 namespace Rql\Def\VersionDummy;
 
+/**
+ * Class Protocol
+ * @package Rql\Def\VersionDummy
+ */
 class Protocol
 {
-  const PROTOBUF = 656407617;
-  const JSON = 2120839367;
+    /**
+     * @deprecated
+     */
+    const PROTOBUF = 0x271ffc41;
+    const JSON = 0x7e6970c7;
 }
