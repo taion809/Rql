@@ -1,0 +1,18 @@
+{
+  "name": "johnsn/rql",
+  "description": "A rethinkdb client",
+  "keywords": ["rethinkdb"],
+  "require": {
+    "guzzlehttp/streams": "~3.0",
+    "php": ">= 5.4"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "~4.4",
+    "mockery/mockery": "~0.9"
+  },
+  "autoload": {
+    "psr-4": {
+      "Rql\\": "src/Rql/"
+    }
+  }
+}
