@@ -36,13 +36,22 @@ class StreamConnection
     }
 
     /**
-     * @param $resource
-     * @param array $options
+     * @param array $connect
      * @return static
      */
-    public static function make($resource, $options = [])
+    public static function make(array $connect)
     {
-        $stream = Stream::factory($resource, $options);
+        $r = [
+            'schema' => isset($connect['schema']) ? $connect['schema'] : 'tcp',
+            'host' => isset($connect['host']) ? $connect['host'] : 'localhost',
+            'port' => isset($connect['port']) ? $connect['port'] : '28015',
+            'options' => isset($connect['options']) ?: []
+        ];
+
+        $connectString = sprintf("%s://%s:%s", $r['schema'], $r['host'], $r['port']);
+        $resource = stream_socket_client($connectString, $errno, $errstr);
+
+        $stream = Stream::factory($resource, $r['options']);
         return new static(new NoSeekStream($stream));
     }
 
