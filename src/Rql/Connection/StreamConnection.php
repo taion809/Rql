@@ -11,9 +11,14 @@ namespace Rql\Connection;
 use GuzzleHttp\Stream\NoSeekStream;
 use GuzzleHttp\Stream\Stream;
 use GuzzleHttp\Stream\StreamInterface;
+use Rql\Def\Response\ResponseType;
 use Rql\Def\VersionDummy\Protocol;
 use Rql\Def\VersionDummy\Version;
 
+/**
+ * Class StreamConnection
+ * @package Rql\Connection
+ */
 class StreamConnection
 {
     /**
@@ -27,12 +32,18 @@ class StreamConnection
     protected $stream;
 
     /**
+     * @var int
+     */
+    protected $token;
+
+    /**
      * @param StreamInterface $stream
      */
     public function __construct(StreamInterface $stream)
     {
         $this->connected = false;
         $this->stream = $stream;
+        $this->token = 0;
     }
 
     /**
@@ -45,7 +56,7 @@ class StreamConnection
             'schema' => isset($connect['schema']) ? $connect['schema'] : 'tcp',
             'host' => isset($connect['host']) ? $connect['host'] : 'localhost',
             'port' => isset($connect['port']) ? $connect['port'] : '28015',
-            'options' => isset($connect['options']) ?: []
+            'options' => isset($connect['options']) ? $connect['options'] : []
         ];
 
         $connectString = sprintf("%s://%s:%s", $r['schema'], $r['host'], $r['port']);
@@ -80,12 +91,44 @@ class StreamConnection
         $this->stream->close();
     }
 
+    /**
+     * @return array|mixed|null
+     */
     public function getMetadata()
     {
         if(! $this->connected) {
             return [];
         }
         return $this->stream->getMetadata();
+    }
+
+    /**
+     * @param $data
+     * @param int $token
+     * @return array
+     * @throws \Exception
+     */
+    public function send($data, $token = -1)
+    {
+        if(! $this->isConnected()) {
+            $this->connect();
+        }
+
+        if($token < 0) {
+            $token = $this->nextToken();
+        }
+
+        $this->write($this->encode($data, $token));
+
+        $headers = $this->fetchHeaders();
+        $responseSize = $this->parseHeaders($headers, $token);
+        $response = $this->fetchResponse($responseSize);
+
+        return [
+            'metadata' => $this->getMetadata(),
+            'headers' => $headers,
+            'data' => $response
+        ];
     }
 
     /**
@@ -109,6 +152,11 @@ class StreamConnection
         return $totalBytesWritten;
     }
 
+    /**
+     * @param $numBytes
+     * @return string
+     * @throws \Exception
+     */
     private function read($numBytes)
     {
         $response = '';
@@ -131,7 +179,11 @@ class StreamConnection
         return $response;
     }
 
-    private function sendHandshake()
+    /**
+     * @return bool
+     * @throws \Exception
+     */
+    protected function sendHandshake()
     {
         $binaryVersion = pack("V", Version::V0_4);
         $handshake = $binaryVersion;
@@ -169,5 +221,77 @@ class StreamConnection
         }
 
         return true;
+    }
+
+    /**
+     * @return array
+     * @throws \Exception
+     */
+    protected function fetchHeaders()
+    {
+        $rawHeaders = $this->read(12);
+        $headers = unpack('Vtoken/Vtoken2/Vsize', $rawHeaders);
+
+        return $headers;
+    }
+
+    /**
+     * @param $headers
+     * @param $token
+     * @return int
+     * @throws \Exception
+     */
+    protected function parseHeaders($headers, $token)
+    {
+        if($headers['token2'] !== 0) {
+            throw new \Exception("Invalid response from server");
+        }
+        if($headers['token'] !== $token) {
+            throw new \Exception("Response token mismatch: received [{$headers['token']}]");
+        }
+        return (int) $headers['size'];
+    }
+
+    /**
+     * @param $size
+     * @return mixed
+     * @throws \Exception
+     */
+    protected function fetchResponse($size)
+    {
+        $rawResponse = $this->read($size);
+        $response = json_decode($rawResponse, true);
+
+        switch($response['t']) {
+            case ResponseType::CLIENT_ERROR:
+                throw new \Exception($response['r'][0], ResponseType::CLIENT_ERROR);
+            case ResponseType::COMPILE_ERROR:
+                throw new \Exception($response['r'][0], ResponseType::COMPILE_ERROR);
+            case ResponseType::RUNTIME_ERROR:
+                throw new \Exception($response['r'][0], ResponseType::RUNTIME_ERROR);
+        }
+
+        return $response;
+    }
+
+    /**
+     * @param $data
+     * @param $token
+     * @return string
+     */
+    protected function encode($data, $token)
+    {
+        $json = json_encode($data);
+        $size = pack('V', strlen($json));
+        $binToken = pack('V', $token) . pack('V', 0);
+        return $binToken . $size . $json;
+    }
+
+    /**
+     * @return int
+     */
+    protected function nextToken()
+    {
+        return mt_rand(100, 100000);
     }
 }
